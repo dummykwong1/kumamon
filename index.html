@@ -78,6 +78,7 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
     <div id="root"></div>
@@ -109,6 +110,44 @@
             { key: 'weekly', label: '每週' },
             { key: 'yearly', label: '每年' }
         ];
+
+        // ---------- Supabase 雲端同步 ----------
+        const SUPABASE_URL = 'https://hgafqdphlsdaoqqhvijl.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_1doUw1tmrv5YJFMQzp6Wxw_S6h64Gxe';
+        const sb = (window.supabase && window.supabase.createClient)
+            ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+            : null;
+
+        const txToRow = (tx, ledgerId, userId) => ({
+            id: tx.id,
+            ledger_id: ledgerId,
+            type: tx.type,
+            date: tx.date,
+            category: tx.category,
+            amount: tx.amount,
+            currency: tx.currency || 'HKD',
+            note: tx.note || '',
+            recurring: tx.recurring || 'none',
+            is_recurring_template: !!tx.isRecurringTemplate,
+            template_id: tx.templateId || null,
+            created_at: tx.createdAt || new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            user_id: userId || null
+        });
+
+        const rowToTx = (row) => ({
+            id: row.id,
+            type: row.type,
+            date: row.date,
+            category: row.category,
+            amount: Number(row.amount),
+            currency: row.currency || 'HKD',
+            note: row.note || '',
+            recurring: row.recurring || 'none',
+            isRecurringTemplate: !!row.is_recurring_template,
+            templateId: row.template_id || undefined,
+            createdAt: row.created_at || undefined
+        });
 
         // 若有嵌入資料，強制寫入 localStorage（匯出的 HTML 用此還原紀錄）
         (function seedFromEmbedded() {
@@ -447,13 +486,17 @@
             </ModalOverlay>
         );
 
-        const SettingsModal = ({ settings, categories, onSaveSettings, onSaveCategories, onClose, onRenameCategory }) => {
+        const SettingsModal = ({ settings, categories, onSaveSettings, onSaveCategories, onClose, onRenameCategory, cloud }) => {
             const [localSettings, setLocalSettings] = useState(settings);
             const [localCats, setLocalCats] = useState([...categories]);
             const [newCat, setNewCat] = useState('');
             const [editingIdx, setEditingIdx] = useState(-1);
             const [editName, setEditName] = useState('');
             const [pendingRenames, setPendingRenames] = useState({}); // oldName -> newName
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [authBusy, setAuthBusy] = useState(false);
+            const [authMode, setAuthMode] = useState('login'); // login | signup
 
             const addCategory = () => {
                 const name = newCat.trim();
@@ -495,6 +538,50 @@
                     <div className="p-6">
                         <h2 className="text-xl font-bold mb-5">設定</h2>
                         <div className="space-y-6">
+                            <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 p-4 bg-zinc-50 dark:bg-zinc-800/40">
+                                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">雲端同步（Supabase）</label>
+                                {cloud && cloud.user ? (
+                                    <div className="space-y-2">
+                                        <p className="text-sm text-zinc-600 dark:text-zinc-300">已登入：<span className="font-mono text-xs">{cloud.user.email}</span></p>
+                                        <p className="text-xs text-zinc-500">{cloud.statusText || '已連線'}</p>
+                                        <div className="flex flex-wrap gap-2 pt-1">
+                                            <button type="button" disabled={cloud.syncing || authBusy}
+                                                onClick={async () => { if (cloud.onSync) await cloud.onSync(); }}
+                                                className="px-3 py-1.5 text-xs font-medium bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-lg disabled:opacity-50">
+                                                {cloud.syncing ? '同步中…' : '立即同步'}
+                                            </button>
+                                            <button type="button" disabled={authBusy}
+                                                onClick={async () => { setAuthBusy(true); try { if (cloud.onLogout) await cloud.onLogout(); } finally { setAuthBusy(false); } }}
+                                                className="px-3 py-1.5 text-xs font-medium border border-zinc-300 dark:border-zinc-600 rounded-lg">
+                                                登出
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        <p className="text-xs text-zinc-500 mb-1">登入後可多裝置同步記帳資料</p>
+                                        <div className="flex gap-2 mb-1">
+                                            <button type="button" onClick={() => setAuthMode('login')}
+                                                className={`px-2.5 py-1 text-xs rounded-full ${authMode === 'login' ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900' : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300'}`}>登入</button>
+                                            <button type="button" onClick={() => setAuthMode('signup')}
+                                                className={`px-2.5 py-1 text-xs rounded-full ${authMode === 'signup' ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900' : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300'}`}>註冊</button>
+                                        </div>
+                                        <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email"
+                                            className="w-full px-3 py-1.5 text-sm border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-800" />
+                                        <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="密碼（至少 6 位）"
+                                            className="w-full px-3 py-1.5 text-sm border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-800" />
+                                        <button type="button" disabled={authBusy || !email || !password}
+                                            onClick={async () => {
+                                                if (!cloud || !cloud.onAuth) return;
+                                                setAuthBusy(true);
+                                                try { await cloud.onAuth(authMode, email.trim(), password); } finally { setAuthBusy(false); }
+                                            }}
+                                            className="w-full px-3 py-2 text-sm font-medium bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-lg disabled:opacity-50">
+                                            {authBusy ? '處理中…' : (authMode === 'login' ? '登入' : '註冊並登入')}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                             <div>
                                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">自訂貨幣符號</label>
                                 <input type="text" value={localSettings.customSymbol}
@@ -847,6 +934,14 @@
             const [toast, setToast] = useState(null);
             const fileInputRef = useRef(null);
 
+            // Supabase 雲端狀態
+            const [cloudUser, setCloudUser] = useState(null);
+            const [ledgerId, setLedgerId] = useState(() => {
+                try { return localStorage.getItem('expense-tracker-ledger-id') || null; } catch { return null; }
+            });
+            const [cloudSyncing, setCloudSyncing] = useState(false);
+            const [cloudStatusText, setCloudStatusText] = useState('');
+
             useEffect(() => {
                 if (theme === 'dark') document.documentElement.classList.add('dark');
                 else document.documentElement.classList.remove('dark');
@@ -854,6 +949,184 @@
 
             const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
             const showToast = (message, type = 'success') => setToast({ message, type });
+
+            const persistLedgerId = (id) => {
+                setLedgerId(id);
+                try {
+                    if (id) localStorage.setItem('expense-tracker-ledger-id', id);
+                    else localStorage.removeItem('expense-tracker-ledger-id');
+                } catch {}
+            };
+
+            // 確保有帳本；若無則建立並把自己加為 owner
+            const ensureLedger = async (user) => {
+                if (!sb || !user) return null;
+                if (ledgerId) {
+                    const { data } = await sb.from('ledgers').select('id').eq('id', ledgerId).maybeSingle();
+                    if (data && data.id) return data.id;
+                }
+                const { data: existing } = await sb.from('ledger_members')
+                    .select('ledger_id').eq('user_id', user.id).limit(1);
+                if (existing && existing.length > 0) {
+                    persistLedgerId(existing[0].ledger_id);
+                    return existing[0].ledger_id;
+                }
+                const { data: led, error: e1 } = await sb.from('ledgers')
+                    .insert({ name: '我的記帳', owner_id: user.id })
+                    .select('id').single();
+                if (e1) throw e1;
+                const { error: e2 } = await sb.from('ledger_members')
+                    .insert({ ledger_id: led.id, user_id: user.id, role: 'owner' });
+                if (e2) throw e2;
+                await sb.from('ledger_settings').upsert({
+                    ledger_id: led.id,
+                    categories: categories,
+                    settings: settings,
+                    theme: theme
+                });
+                persistLedgerId(led.id);
+                return led.id;
+            };
+
+            const pullFromCloud = async (user, lid) => {
+                if (!sb || !lid) return;
+                const { data, error } = await sb.from('transactions')
+                    .select('*').eq('ledger_id', lid).order('date', { ascending: false });
+                if (error) throw error;
+                const remote = (data || []).map(rowToTx);
+                setTransactions(remote);
+                const { data: st } = await sb.from('ledger_settings').select('*').eq('ledger_id', lid).maybeSingle();
+                if (st) {
+                    if (Array.isArray(st.categories) && st.categories.length) setCategories(st.categories);
+                    if (st.settings && typeof st.settings === 'object') setSettings(prev => ({ ...prev, ...st.settings }));
+                    if (st.theme) setTheme(st.theme);
+                }
+                setCloudStatusText('已從雲端載入 ' + remote.length + ' 筆');
+            };
+
+            const pushAllToCloud = async (user, lid, list) => {
+                if (!sb || !lid || !user) return;
+                const rows = (list || []).map(tx => txToRow(tx, lid, user.id));
+                if (rows.length > 0) {
+                    const { error } = await sb.from('transactions').upsert(rows, { onConflict: 'id' });
+                    if (error) throw error;
+                }
+                await sb.from('ledger_settings').upsert({
+                    ledger_id: lid,
+                    categories: categories,
+                    settings: { customSymbol: settings.customSymbol, rates: settings.rates },
+                    theme: theme,
+                    updated_at: new Date().toISOString()
+                });
+            };
+
+            const syncCloud = async () => {
+                if (!sb || !cloudUser) { showToast('請先登入', 'error'); return; }
+                setCloudSyncing(true);
+                try {
+                    const lid = await ensureLedger(cloudUser);
+                    // 先推本機，再拉（簡單策略：以本機為準上傳後再確認）
+                    await pushAllToCloud(cloudUser, lid, transactions);
+                    await pullFromCloud(cloudUser, lid);
+                    showToast('同步完成');
+                    setCloudStatusText('上次同步：剛剛');
+                } catch (e) {
+                    console.error(e);
+                    showToast('同步失敗：' + (e.message || e), 'error');
+                } finally {
+                    setCloudSyncing(false);
+                }
+            };
+
+            const cloudUpsertTx = async (tx) => {
+                if (!sb || !cloudUser || !ledgerId) return;
+                try {
+                    const { error } = await sb.from('transactions')
+                        .upsert(txToRow(tx, ledgerId, cloudUser.id), { onConflict: 'id' });
+                    if (error) throw error;
+                } catch (e) {
+                    console.warn('cloud upsert failed', e);
+                    showToast('雲端儲存失敗（本機已保存）', 'error');
+                }
+            };
+
+            const cloudDeleteTx = async (id) => {
+                if (!sb || !cloudUser || !ledgerId) return;
+                try {
+                    const { error } = await sb.from('transactions').delete().eq('id', id);
+                    if (error) throw error;
+                } catch (e) {
+                    console.warn('cloud delete failed', e);
+                    showToast('雲端刪除失敗（本機已刪）', 'error');
+                }
+            };
+
+            const handleCloudAuth = async (mode, email, password) => {
+                if (!sb) { showToast('Supabase 未載入', 'error'); return; }
+                try {
+                    if (mode === 'signup') {
+                        const { data, error } = await sb.auth.signUp({ email, password });
+                        if (error) throw error;
+                        if (data.session) {
+                            setCloudUser(data.user);
+                            const lid = await ensureLedger(data.user);
+                            await pushAllToCloud(data.user, lid, transactions);
+                            showToast('註冊成功，已上傳本機資料');
+                        } else {
+                            showToast('註冊成功，請檢查 Email 確認信後再登入');
+                        }
+                    } else {
+                        const { data, error } = await sb.auth.signInWithPassword({ email, password });
+                        if (error) throw error;
+                        setCloudUser(data.user);
+                        const lid = await ensureLedger(data.user);
+                        // 若雲端已有資料則拉下；否則上傳本機
+                        const { count } = await sb.from('transactions')
+                            .select('id', { count: 'exact', head: true }).eq('ledger_id', lid);
+                        if ((count || 0) > 0) {
+                            await pullFromCloud(data.user, lid);
+                            showToast('登入成功，已載入雲端資料');
+                        } else {
+                            await pushAllToCloud(data.user, lid, transactions);
+                            showToast('登入成功，已上傳本機資料');
+                        }
+                    }
+                } catch (e) {
+                    console.error(e);
+                    showToast((e && e.message) ? e.message : '登入失敗', 'error');
+                }
+            };
+
+            const handleCloudLogout = async () => {
+                if (sb) await sb.auth.signOut();
+                setCloudUser(null);
+                setCloudStatusText('');
+                showToast('已登出（本機資料保留）');
+            };
+
+            // 啟動時恢復 session
+            useEffect(() => {
+                if (!sb) return;
+                let unsub = null;
+                (async () => {
+                    const { data } = await sb.auth.getSession();
+                    if (data && data.session && data.session.user) {
+                        setCloudUser(data.session.user);
+                        try {
+                            const lid = await ensureLedger(data.session.user);
+                            await pullFromCloud(data.session.user, lid);
+                        } catch (e) {
+                            console.warn(e);
+                            setCloudStatusText('連線成功，同步時再更新');
+                        }
+                    }
+                    const { data: sub } = sb.auth.onAuthStateChange((_event, session) => {
+                        setCloudUser(session && session.user ? session.user : null);
+                    });
+                    unsub = () => sub.subscription.unsubscribe();
+                })();
+                return () => { if (unsub) unsub(); };
+            }, []);
 
             const getSymbol = (currencyKey) => {
                 if (currencyKey === 'CUSTOM') return settings.customSymbol || '$';
@@ -1022,6 +1295,7 @@
                 }
                 setIsFormOpen(false);
                 setEditingTx(null);
+                cloudUpsertTx(tx);
             };
 
             const handleDelete = (id) => {
@@ -1032,6 +1306,7 @@
                     onConfirm: () => {
                         setTransactions(prev => prev.filter(tx => tx.id !== id));
                         showToast('已刪除');
+                        cloudDeleteTx(id);
                     }
                 });
             };
@@ -1429,7 +1704,15 @@
                         <SettingsModal settings={settings} categories={categories}
                             onSaveSettings={setSettings} onSaveCategories={setCategories}
                             onRenameCategory={handleRenameCategories}
-                            onClose={() => setIsSettingsOpen(false)} />
+                            onClose={() => setIsSettingsOpen(false)}
+                            cloud={{
+                                user: cloudUser,
+                                syncing: cloudSyncing,
+                                statusText: cloudStatusText,
+                                onAuth: handleCloudAuth,
+                                onLogout: handleCloudLogout,
+                                onSync: syncCloud
+                            }} />
                     )}
                     {isRecurringListOpen && (
                         <RecurringListModal
