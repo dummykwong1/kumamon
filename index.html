@@ -1272,7 +1272,6 @@
         root.render(<App />);
     </script>
 
-    <!-- Service Worker 註冊（必須放在 Babel 外面） -->
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
@@ -1281,17 +1280,6 @@
             .catch(err => console.error('Service Worker 註冊失敗:', err));
         });
       }
-    </script>
-</body>
-</html>
-
-        if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js')
-        .then((reg) => console.log('Service Worker 註冊成功:', reg.scope))
-        .catch((err) => console.log('Service Worker 註冊失敗:', err));
-    });
-  }
     </script>
 </body>
 </html>
