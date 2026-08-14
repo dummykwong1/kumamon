@@ -1,9 +1,12 @@
-const CACHE_NAME = 'kumamon-pwa-v4';
+const CACHE_NAME = 'kumamon-pwa-v5';
 
 const urlsToCache = [
   './',
   './index.html',
   './manifest.json',
+  './react.production.min.js',
+  './react-dom.production.min.js',
+  './babel.min.js',
   './icon-192.png',
   './icon-512.png'
 ];
