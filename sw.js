@@ -1,40 +1,34 @@
-const CACHE_NAME = 'kumamon-pwa-v3';
+const CACHE_NAME = 'kumamon-pwa-v4';
 
 const urlsToCache = [
   './',
   './index.html',
-  './manifest.json'
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png'
 ];
 
+// 安裝
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(async cache => {
-      // 先快取本地檔案
-      await cache.addAll(urlsToCache);
-
-      // CDN 個別嘗試，失敗也不影響
-      const cdnUrls = [
-        'https://cdn.tailwindcss.com',
-        'https://unpkg.com/react@18/umd/react.production.min.js',
-        'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
-        'https://unpkg.com/@babel/standalone/babel.min.js'
-      ];
-
-      for (const url of cdnUrls) {
-        try {
-          const res = await fetch(url, { mode: 'no-cors' });
-          await cache.put(url, res);
-          console.log('已快取:', url);
-        } catch (e) {
-          console.warn('快取失敗（可忽略）:', url);
-        }
-      }
+    caches.open(CACHE_NAME).then(cache => {
+      return cache.addAll(urlsToCache).catch(err => {
+        console.warn('部分本地檔案快取失敗', err);
+      });
     })
   );
   self.skipWaiting();
 });
 
+// 攔截請求
 self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
+
+  // 只處理同源請求（自己的檔案），CDN 一律放行給網路
+  if (url.origin !== location.origin) {
+    return; // 不攔截 CDN
+  }
+
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) return cached;
@@ -54,10 +48,13 @@ self.addEventListener('fetch', event => {
   );
 });
 
+// 清除舊快取
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(names =>
-      Promise.all(names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n)))
+      Promise.all(
+        names.filter(name => name !== CACHE_NAME).map(name => caches.delete(name))
+      )
     )
   );
   self.clients.claim();
