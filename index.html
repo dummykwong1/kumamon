@@ -1093,7 +1093,11 @@
                     }
                 } catch (e) {
                     console.error(e);
-                    showToast((e && e.message) ? e.message : '登入失敗', 'error');
+                    let msg = (e && e.message) ? e.message : '登入失敗';
+                    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+                        msg = '無法連線到雲端（Failed to fetch）。請確認：① Project 未暫停 ② 使用 https 開啟網站 ③ 關閉廣告攔截後重試';
+                    }
+                    showToast(msg, 'error');
                 }
             };
 
